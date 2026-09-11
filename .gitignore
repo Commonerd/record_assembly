@@ -1,0 +1,15 @@
+.venv
+hwp_downloads
+pdf_downloads
+output_
+output_2
+output_3
+download_log.txt
+
+# Generated datasets that exceed GitHub's file-size limit
+record_assembly_sorted.csv
+record_assembly_sorted_rhee_keywords.csv
+record_assembly_sorted_rhee_keywords2.csv
+speaker_speech_detail.csv
+output/speaker_speech_detail.csv
+output/speaker_speech_detail.parquet
