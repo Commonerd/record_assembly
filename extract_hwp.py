@@ -17,17 +17,17 @@ import olefile
 # 설정
 # ============================================================
 
-HWP_DIR = "hwp_downloads2"
+HWP_DIR = "hwp_downloads"
 
 # ① 파일 단위 요약 CSV: Title, Date, Content
-OUTPUT_CSV_SUMMARY = "record_assembly_summary.csv"
+OUTPUT_CSV_SUMMARY = "hwp_record_assembly_summary.csv"
 
 # ② 발언자 단위로 행을 분리한 CSV: Title, Date, Seq, Type, Speaker, Content
-OUTPUT_CSV_SPEECHES = "record_assembly_speeches.csv"
+OUTPUT_CSV_SPEECHES = "hwp_record_assembly_speeches.csv"
 
-LOG_FILE = "record_assembly_log.txt"
+LOG_FILE = "hwp_record_assembly_log.txt"
 
-BATCH_SIZE = 64
+BATCH_SIZE = 32
 IDLE_TIMEOUT_SEC = 10
 POLL_INTERVAL_SEC = 2
 
@@ -40,7 +40,7 @@ SPEAKER_MARK = "\u25ef"
 AGENDA_RE = re.compile(r"^\d+[\.\)]\s*\S")
 
 # 파일명에서 날짜(YYYY_MM_DD)를 추출하기 위한 패턴
-FILENAME_DATE_RE = re.compile(r"(\d{4})_(\d{1,2})_(\d{1,2})")
+FILENAME_DATE_RE = FILENAME_DATE_RE = re.compile(r"\((\d{4})\.(\d{1,2})\.(\d{1,2})\)")
 
 
 # ============================================================
@@ -212,6 +212,7 @@ def clean_paragraph(text):
 
     # 탭을 일반 공백으로
     text = text.replace("\t", " ")
+    text = re.sub(r"[\ud800-\udfff]", "", text)
 
     # ----------------------------------------
     # 줄 단위 정리
@@ -872,7 +873,7 @@ async def main():
 
     loop = asyncio.get_running_loop()
 
-    max_workers = os.cpu_count() or 4
+    max_workers = 4
 
     log_message(
         f"💻 CPU 코어: {max_workers}"
