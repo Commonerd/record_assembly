@@ -40,7 +40,16 @@ SPEAKER_MARK = "\u25ef"
 AGENDA_RE = re.compile(r"^\d+[\.\)]\s*\S")
 
 # 파일명에서 날짜(YYYY_MM_DD)를 추출하기 위한 패턴
-FILENAME_DATE_RE = FILENAME_DATE_RE = re.compile(r"\((\d{4})\.(\d{1,2})\.(\d{1,2})\)")
+# 파일명에서 날짜 추출
+# 지원 예:
+#   ... (1948.06.01.).hwp
+#   ... ___1948_05_31__.hwp
+FILENAME_DATE_PAREN_RE = re.compile(
+    r"\((\d{4})[._-](\d{1,2})[._-](\d{1,2})\.?\)"
+)
+FILENAME_DATE_UNDERSCORE_RE = re.compile(
+    r"_+(\d{4})[._-](\d{1,2})[._-](\d{1,2})_+"
+)
 
 
 # ============================================================
@@ -325,22 +334,25 @@ def parse_title_and_date(file_name):
 
     date_str = ""
 
-    m = FILENAME_DATE_RE.search(base)
+    # ① 실제 현재 파일명 형태: (1948.06.01.)
+    m = FILENAME_DATE_PAREN_RE.search(base)
+
+    # ② 예전/대체 파일명 형태: ___1948_05_31__
+    if m:
+        year, month, day = m.groups()
+        title_part = base[:m.start()]
+    else:
+        m = FILENAME_DATE_UNDERSCORE_RE.search(base)
+        if m:
+            year, month, day = m.groups()
+            title_part = base[:m.start()]
+        else:
+            title_part = base
 
     if m:
-
-        year, month, day = m.groups()
-
         date_str = (
             f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
         )
-
-        # 날짜 부분을 잘라내고 제목만 남긴다
-        title_part = base[:m.start()]
-
-    else:
-
-        title_part = base
 
     # 밑줄(_)들을 공백 하나로 정리
     title = re.sub(
@@ -1041,19 +1053,28 @@ async def main():
     # 정렬 (날짜순 → 같은 날짜 내에서는 원래 순서/순번 유지)
     # --------------------------------------------------------
 
-    # ① 요약 CSV: Title, Date, Content  → Date 기준
+    # ① 요약 CSV: Title, Date, Content
+    #    → Date 오름차순
+    #    → Date가 비어 있는 예외 행은 마지막으로 이동
     sort_final_csv(
         OUTPUT_CSV_SUMMARY,
-        key_func=lambda row: row[1],  # Date
+        key_func=lambda row: (
+            row[1] == "",
+            row[1],
+        ),
     )
 
     # ② 발언분리 CSV: Title, Date, Seq, Type, Speaker, Content
-    #    → Date 기준, 같은 날짜 안에서는 Seq(발언 순서) 기준
+    #    → Date 오름차순
+    #    → 같은 Date에서는 Seq 오름차순
+    #    → Date/Seq가 완전히 같은 경우에만 Title로 안정화
     sort_final_csv(
         OUTPUT_CSV_SPEECHES,
         key_func=lambda row: (
+            row[1] == "",
             row[1],
-            int(row[2]) if row[2].isdigit() else 0,
+            int(row[2]) if row[2].strip().isdigit() else 0,
+            row[0],
         ),
     )
 
