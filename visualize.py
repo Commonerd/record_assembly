@@ -2442,17 +2442,6 @@ def make_dashboard(summary=None, insights=None):
 {annotation_html}
 <div class="data-strip"><span class="label">DATA</span>{data_html}</div>
 <div class="footer"><span>분석 범위: {escape(str(summary.get('start','—')))} ~ {escape(str(summary.get('end','—')))}</span><span>발언(Event) 중심 · 핵심 네트워크 노드만 라벨 표시</span></div>
-<script>
-function fitDashboardFrames(){{
-  document.querySelectorAll("iframe").forEach(function(frame){{
-    function fit(){{ try {{ var d=frame.contentDocument; if(!d) return; var h=Math.max(d.body?d.body.scrollHeight:0,d.documentElement?d.documentElement.scrollHeight:0); if(h>80) frame.style.height=(h+14)+"px"; }} catch(e){{}} }}
-    function observe(){{ try {{ var d=frame.contentDocument; if(!d||!d.body) return; if(frame._ro) frame._ro.disconnect(); if(d.defaultView&&d.defaultView.ResizeObserver){{ frame._ro=new d.defaultView.ResizeObserver(fit); frame._ro.observe(d.body); if(d.documentElement) frame._ro.observe(d.documentElement); }} }} catch(e){{}} fit(); }}
-    frame.addEventListener("load",observe); setTimeout(observe,250); setTimeout(observe,1000); setTimeout(observe,2500);
-  }});
-}}
-document.addEventListener("DOMContentLoaded",fitDashboardFrames);
-window.addEventListener("resize",fitDashboardFrames);
-</script>
 </main></body></html>'''
     (OUTPUT_DIR / "대시보드.html").write_text(text, encoding="utf-8")
 
