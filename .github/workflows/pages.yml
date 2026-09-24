@@ -35,8 +35,8 @@ jobs:
 
       - name: Prepare site
         run: |
-          mkdir -p _site
-          cp -R visualization_rhee_advanced/. _site/
+          mkdir -p _site/visualization_rhee_advanced
+          cp -R visualization_rhee_advanced/. _site/visualization_rhee_advanced/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
