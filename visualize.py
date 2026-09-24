@@ -35,7 +35,7 @@ hwp_record_assembly_speeches_이승만시기.csv
 
 출력
 ----
-visualization_rhee_advanced/
+visualization_rhee/
   01_월별_담론량.html
   02_월별_담론상대빈도.html
   03_6개계열_시간Heatmap.html
@@ -93,7 +93,7 @@ except ImportError:
 # ------------------------------------------------------------
 
 INPUT_CSV = Path("hwp_record_assembly_speeches_이승만시기.csv")
-OUTPUT_DIR = Path("visualization_rhee_advanced")
+OUTPUT_DIR = Path("visualization_rhee")
 LOG_DIR = OUTPUT_DIR / "logs"
 ANNOTATION_DIR = OUTPUT_DIR / "annotations"
 

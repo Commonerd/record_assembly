@@ -1,11 +1,11 @@
-name: Deploy visualization_rhee_advanced
+name: Deploy visualization_rhee
 
 on:
   push:
     branches:
       - master
     paths:
-      - "visualization_rhee_advanced/**"
+      - "visualization_rhee/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -35,8 +35,8 @@ jobs:
 
       - name: Prepare site
         run: |
-          mkdir -p _site/visualization_rhee_advanced
-          cp -R visualization_rhee_advanced/. _site/visualization_rhee_advanced/
+          mkdir -p _site/visualization_rhee
+          cp -R visualization_rhee/. _site/visualization_rhee/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3

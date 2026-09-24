@@ -5,6 +5,8 @@
 [LOAD] 분석 행 수: 679,896
 [LOAD] 발언자 수: 5,125
 [LOAD] 회의 수: 2,575
+[OK] 정당 중심 분석: 12개 정당 · 4종 시각화
+[OK] 커뮤니티 탐지: Louvain(weighted), 17개 커뮤니티
 [SKIP] 인간/Gold annotation label 열이 없어 annotation label distribution 생략
 [SKIP] 2개 이상의 annotator 열이 없어 annotator agreement 생략
 [SKIP] Gold label + model label이 모두 없어 Gold vs Model 분석 생략
