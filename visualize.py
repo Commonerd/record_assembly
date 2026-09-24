@@ -258,6 +258,12 @@ def _node_label_annotations(pos, nodes, label_nodes, font_size=10, yshift=8,
     return anns
 
 
+def _speaker_label(graph, node):
+    if graph is not None and node in graph:
+        return clean(graph.nodes[node].get("speaker_label", node)) or str(node)
+    return str(node)
+
+
 def _append_layout_annotations(fig, extra_annotations):
     current = list(fig.layout.annotations) if fig.layout.annotations else []
     fig.update_layout(annotations=current + list(extra_annotations))
@@ -558,14 +564,14 @@ def build_dashboard_insights(df, monthly, family_ratio, keyword_month, keyword_n
         ]:
             if col in centrality_df.columns:
                 rr = centrality_df.sort_values(col, ascending=False).iloc[0]
-                metric_top.append(f"{label}={rr['SpeakerKey']}")
+                metric_top.append(f"{label}={rr.get('Speaker', rr['SpeakerKey'])}")
         insights["20_중심성_분석.html"] = " · ".join(metric_top) + "."
         center = centrality_df.sort_values("WeightedBetweennessCentrality", ascending=False).iloc[0]
         ego_parts=[]
         for col,label in [("DegreeCentrality","차수"),("BetweennessCentrality","매개"),("ClosenessCentrality","근접"),("EigenvectorCentrality","고유벡터")]:
             if col in centrality_df.columns:
                 rr=centrality_df.sort_values(col,ascending=False).iloc[0]
-                ego_parts.append(f"{label}={rr['SpeakerKey']}")
+                ego_parts.append(f"{label}={rr.get('Speaker', rr['SpeakerKey'])}")
         insights["21_에고네트워크.html"] = " · ".join(ego_parts) + "."
     if flow_graph is not None and getattr(flow_graph, "number_of_edges", lambda: 0)() > 0:
         ys = []
@@ -665,7 +671,7 @@ def build_dashboard_insights(df, monthly, family_ratio, keyword_month, keyword_n
         if cross_graph is not None and cross_graph.number_of_edges():
             e=max(cross_graph.edges(data=True),key=lambda x:x[2].get('weight',0)); parts.append(f"담론 연결 {e[0]}–{e[1]}")
         if centrality_df is not None and not centrality_df.empty:
-            c=centrality_df.sort_values("BetweennessCentrality",ascending=False).iloc[0]; parts.append(f"매개 중심 의원 {c['SpeakerKey']}")
+            c=centrality_df.sort_values("BetweennessCentrality",ascending=False).iloc[0]; parts.append(f"매개 중심 의원 {c.get('Speaker', c['SpeakerKey'])}")
         insights["SUMMARY_06"] = " · ".join(parts) if parts else "담론·키워드·발언흐름의 연결 구조를 확인."
     except Exception:
         insights["SUMMARY_06"] = "담론·키워드·발언흐름의 연결 구조를 확인."
@@ -936,6 +942,7 @@ def party_center_analysis(df):
         return
 
     parties = list(pdf.index)
+    speaker_labels = sub.groupby("SpeakerKey")["Speaker"].agg(mode_or_unknown).to_dict()
 
     # 25. 정당-주요의원 네트워크
     G = nx.Graph()
@@ -945,7 +952,7 @@ def party_center_analysis(df):
         top_s = sub[sub["정당"] == party].groupby("SpeakerKey").size().sort_values(ascending=False).head(6)
         for sp, cnt in top_s.items():
             sn = f"의원:{sp}"
-            G.add_node(sn, node_type="speaker", label=sp, weight=float(cnt))
+            G.add_node(sn, node_type="speaker", label=speaker_labels.get(sp, sp), speaker_key=sp, weight=float(cnt))
             G.add_edge(pn, sn, weight=float(cnt))
 
     pos = _safe_spring_layout(G, weight="weight", k=1.0, iterations=100)
@@ -1172,8 +1179,9 @@ def build_speech_flow_network(df):
                 })
 
     G = nx.Graph()
+    speaker_labels = ordered.groupby("SpeakerKey")["Speaker"].agg(mode_or_unknown).to_dict()
     for sp, n in ordered["SpeakerKey"].value_counts().items():
-        G.add_node(sp, speech_count=int(n))
+        G.add_node(sp, speech_count=int(n), speaker_label=speaker_labels.get(sp, sp))
     for (u, v), w in edge_counter.items():
         G.add_edge(u, v, weight=int(w))
 
@@ -1202,7 +1210,7 @@ def build_speech_flow_network(df):
         mode="markers",
         textfont=dict(size=10, color="#253443", family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
         marker=dict(size=[capped_node_size(H.nodes[n]["speech_count"], base=7, scale=1.25, cap=15) for n in H.nodes], opacity=0.82, line=dict(width=1.1, color="#ffffff")),
-        hovertemplate=[f"{n}<br>발언 수={H.nodes[n]['speech_count']}<extra></extra>" for n in H.nodes],
+        hovertemplate=[f"{_speaker_label(H, n)}<br>발언 수={H.nodes[n]['speech_count']}<br>식별자={n}<extra></extra>" for n in H.nodes],
         showlegend=False,
     )
     fig = go.Figure([edge_trace, node_trace])
@@ -1319,6 +1327,7 @@ def centrality_analysis(G):
     for node in G.nodes:
         rows.append({
             "SpeakerKey": node,
+            "Speaker": _speaker_label(G, node),
             "SpeechCount": int(G.nodes[node].get("speech_count", 0)),
             "DegreeCentrality": float(degree_c.get(node, 0.0)),
             "WeightedDegree": float(strength.get(node, 0.0)),
@@ -1391,7 +1400,7 @@ def centrality_analysis(G):
                 ex += [pos[u][0], pos[v][0], None]
                 ey += [pos[u][1], pos[v][1], None]
                 w = int(d.get("weight", 1))
-                et += [f"{u} ↔ {v}<br>연속 발언 연결={w}회<extra></extra>"] * 2 + [None]
+                et += [f"{_speaker_label(H, u)} ↔ {_speaker_label(H, v)}<br>연속 발언 연결={w}회<extra></extra>"] * 2 + [None]
             edge = go.Scatter(x=ex, y=ey, mode="lines", line=dict(width=1.2, color="rgba(135,112,170,0.22)"),
                               hoverinfo="text", text=et, showlegend=False)
             node = go.Scatter(
@@ -1399,7 +1408,7 @@ def centrality_analysis(G):
                 mode="markers",
                 marker=dict(size=metric_size(score_map, nodes), opacity=0.86, line=dict(width=1.2, color="#ffffff")),
                 hovertemplate=[
-                    f"{n}<br>중심성={float(score_map.get(n,0)):.6f}<br>발언={int(H.nodes[n].get('speech_count',0))}<br>연결수={int(H.degree(n))}<br>Strength={float(strength.get(n,0)):.1f}<extra></extra>"
+                    f"{_speaker_label(H, n)}<br>중심성={float(score_map.get(n,0)):.6f}<br>발언={int(H.nodes[n].get('speech_count',0))}<br>연결수={int(H.degree(n))}<br>Strength={float(strength.get(n,0)):.1f}<br>식별자={n}<extra></extra>"
                     for n in nodes
                 ], showlegend=False,
             )
@@ -1409,8 +1418,8 @@ def centrality_analysis(G):
         nt_on = make_network_traces(on_H, pos_on, on_col)
         off_labels = top_label_nodes(list(off_H.nodes), dict(zip(dfc["SpeakerKey"], dfc[off_col])), n=min(7, len(off_H)))
         on_labels = top_label_nodes(list(on_H.nodes), dict(zip(dfc["SpeakerKey"], dfc[on_col])), n=min(7, len(on_H)))
-        net_annotations_off.append(_node_label_annotations(pos_off, list(off_H.nodes), off_labels, font_size=10, yshift=8))
-        net_annotations_on.append(_node_label_annotations(pos_on, list(on_H.nodes), on_labels, font_size=10, yshift=8))
+        net_annotations_off.append(_node_label_annotations(pos_off, list(off_H.nodes), off_labels, font_size=11, yshift=9, label_map={n: _speaker_label(off_H, n) for n in off_H.nodes}))
+        net_annotations_on.append(_node_label_annotations(pos_on, list(on_H.nodes), on_labels, font_size=11, yshift=9, label_map={n: _speaker_label(on_H, n) for n in on_H.nodes}))
 
         nf = go.Figure()
         for tr in nt_off:
@@ -1427,14 +1436,14 @@ def centrality_analysis(G):
         on_rank = dfc.sort_values([on_col, "SpeechCount"], ascending=False).head(10).iloc[::-1].copy()
         rf = go.Figure()
         rf.add_trace(go.Bar(
-            x=off_rank[off_col], y=off_rank["SpeakerKey"], orientation="h",
-            customdata=np.column_stack([off_rank[f"Rank_{off_col}"], off_rank["SpeechCount"]]),
-            hovertemplate="%{y}<br>값=%{x:.6f}<br>순위=%{customdata[0]}<br>발언=%{customdata[1]}<extra></extra>"
+            x=off_rank[off_col], y=off_rank["Speaker"], orientation="h",
+            customdata=np.column_stack([off_rank[f"Rank_{off_col}"], off_rank["SpeechCount"], off_rank["SpeakerKey"]]),
+            hovertemplate="%{y}<br>값=%{x:.6f}<br>순위=%{customdata[0]}<br>발언=%{customdata[1]}<br>식별자=%{customdata[2]}<extra></extra>"
         ))
         rf.add_trace(go.Bar(
-            x=on_rank[on_col], y=on_rank["SpeakerKey"], orientation="h",
-            customdata=np.column_stack([on_rank[f"Rank_{on_col}"], on_rank["SpeechCount"]]),
-            hovertemplate="%{y}<br>값=%{x:.6f}<br>순위=%{customdata[0]}<br>발언=%{customdata[1]}<extra></extra>",
+            x=on_rank[on_col], y=on_rank["Speaker"], orientation="h",
+            customdata=np.column_stack([on_rank[f"Rank_{on_col}"], on_rank["SpeechCount"], on_rank["SpeakerKey"]]),
+            hovertemplate="%{y}<br>값=%{x:.6f}<br>순위=%{customdata[0]}<br>발언=%{customdata[1]}<br>식별자=%{customdata[2]}<extra></extra>",
             visible=False,
         ))
         rf.update_layout(title=f"{name} 랭킹 · 가중 OFF", height=470,
@@ -1460,9 +1469,9 @@ def centrality_analysis(G):
         '.top{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;margin-bottom:12px}',
         'h1{font-size:22px;margin:0 0 4px}.sub{font-size:11px;color:#687482}',
         '.controls{display:flex;gap:6px;align-items:center}.controls button{border:1px solid #cfd6dc;background:#fff;padding:7px 12px;border-radius:8px;font-size:11px;cursor:pointer}.controls button.active{font-weight:800;background:#eef2f5;border-color:#9da8b2}',
-        '.defs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:9px}.def{border:1px solid #dde2e7;border-radius:9px;padding:8px;background:#f8fafb;min-height:47px}.def b{display:block;font-size:11px;margin-bottom:2px}.def span{font-size:10px;color:#5e6b77;line-height:1.35}',
-        '.note{font-size:10px;color:#687482;padding:7px 9px;background:#f5f7f9;border-radius:8px;margin-bottom:10px;line-height:1.45}',
-        '.metric-panel{border:1px solid #dde2e7;border-radius:12px;padding:10px;margin-bottom:12px;background:#fff}.metric-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:2px 4px 4px}.metric-head h2{margin:0;font-size:15px}.metric-head p{margin:2px 0 0;font-size:10px;color:#697681}.metric-mode{font-size:9px;border:1px solid #cfd6dc;border-radius:999px;padding:4px 7px;color:#5f6b75;white-space:nowrap}',
+        '.defs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:9px}.def{border:1px solid #dde2e7;border-radius:9px;padding:8px;background:#f8fafb;min-height:47px}.def b{display:block;font-size:12px;margin-bottom:2px}.def span{font-size:11px;color:#5e6b77;line-height:1.35}',
+        '.note{font-size:11px;color:#687482;padding:8px 10px;background:#f5f7f9;border-radius:8px;margin-bottom:10px;line-height:1.5}',
+        '.metric-panel{border:1px solid #dde2e7;border-radius:12px;padding:10px;margin-bottom:12px;background:#fff}.metric-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:2px 4px 4px}.metric-head h2{margin:0;font-size:16px}.metric-head p{margin:2px 0 0;font-size:11px;color:#697681}.metric-mode{font-size:10px;border:1px solid #cfd6dc;border-radius:999px;padding:4px 7px;color:#5f6b75;white-space:nowrap}',
         '.metric-grid{display:grid;grid-template-columns:1.25fr .75fr;gap:10px}',
         '@media(max-width:1050px){.defs{grid-template-columns:repeat(2,1fr)}.metric-grid{grid-template-columns:1fr}.top{flex-direction:column}.controls{align-self:flex-end}}@media(max-width:600px){.defs{grid-template-columns:1fr}.wrap{padding:12px}}',
         '</style></head><body><div class="wrap">',
@@ -1632,72 +1641,82 @@ h1{{font-size:22px;margin:0 0 4px}} .sub{{font-size:11px;color:#687482;margin-bo
 
 
 def ego_network_analysis(G, centrality_df):
-    """8개 중심성 지표에서 각각 1위 의원의 1차 연결망을 비교한다."""
+    """4개 중심성의 1위 의원 에고 네트워크를 2×2 패널로 만들고 각 패널에서 가중 OFF/ON을 전환한다."""
     if G is None or nx is None or centrality_df.empty:
         skip("에고 네트워크 생성에 필요한 데이터가 없습니다.")
         return
 
     specs = [
-        ("DegreeCentrality", "차수중심성", False),
-        ("BetweennessCentrality", "매개중심성", False),
-        ("ClosenessCentrality", "근접중심성", False),
-        ("EigenvectorCentrality", "고유벡터중심성", False),
-        ("WeightedDegree", "가중차수·Strength", True),
-        ("WeightedBetweennessCentrality", "가중 매개중심성", True),
-        ("WeightedClosenessCentrality", "가중 근접중심성", True),
-        ("WeightedEigenvectorCentrality", "가중 고유벡터중심성", True),
+        ("DegreeCentrality", "WeightedDegree", "차수중심성"),
+        ("BetweennessCentrality", "WeightedBetweennessCentrality", "매개중심성"),
+        ("ClosenessCentrality", "WeightedClosenessCentrality", "근접중심성"),
+        ("EigenvectorCentrality", "WeightedEigenvectorCentrality", "고유벡터중심성"),
     ]
-    figs = []
-    for col, label, weighted in specs:
-        if col not in centrality_df.columns:
+    panels=[]
+    for i,(off_col,on_col,label) in enumerate(specs):
+        if off_col not in centrality_df.columns or on_col not in centrality_df.columns:
             continue
-        top_row = centrality_df.sort_values([col, "SpeechCount"], ascending=False).iloc[0]
-        center = top_row["SpeakerKey"]
-        if center not in G:
+        off_center=centrality_df.sort_values([off_col,"SpeechCount"],ascending=False).iloc[0]["SpeakerKey"]
+        on_center=centrality_df.sort_values([on_col,"SpeechCount"],ascending=False).iloc[0]["SpeakerKey"]
+        if off_center not in G or on_center not in G:
             continue
-        ego = nx.ego_graph(G, center, radius=1)
-        # 대규모 ego는 edge weight 상위 이웃 12명으로 제한
-        neighbors = sorted(((n, G[center][n].get("weight", 1)) for n in ego.neighbors(center)), key=lambda x: x[1], reverse=True)
-        keep = {center} | {n for n, _ in neighbors[:12]}
-        ego = G.subgraph(keep).copy()
-        pos = _safe_spring_layout(ego, weight="weight" if weighted else None, seed=42, k=.9, iterations=100)
-        ex, ey, et = [], [], []
-        for u, v, d in ego.edges(data=True):
-            ex += [pos[u][0], pos[v][0], None]; ey += [pos[u][1], pos[v][1], None]
-            h = f"{u} ↔ {v}<br>연속 발언={int(d.get('weight',1))}회<extra></extra>"
-            et += [h, h, None]
-        edge_trace = go.Scatter(x=ex, y=ey, mode="lines", line=dict(width=1.3 if weighted else 1, color="rgba(135,112,170,0.24)"), hoverinfo="text", text=et, showlegend=False, name="연속 발언 연결")
-        sizes = []
-        for n in ego.nodes:
-            if n == center:
-                sizes.append(24)
-            else:
-                w = float(G[center][n].get("weight", 1))
-                sizes.append(float(min(16, 7 + math.sqrt(max(w,1)) * 1.6)))
-        label_nodes = {center} | {n for n, _ in neighbors[:5]}
-        node_trace = go.Scatter(
-            x=[pos[n][0] for n in ego.nodes], y=[pos[n][1] for n in ego.nodes],
-            mode="markers",
-            marker=dict(size=sizes, opacity=.86, line=dict(width=1.2, color="#ffffff")),
-            name="의원", showlegend=False,
-            hovertemplate=[f"{n}<br>센터={center}<br>연속 발언={int(G[center][n].get('weight',0)) if n!=center else '-'}<extra></extra>" for n in ego.nodes],
-        )
-        fig = go.Figure([edge_trace, node_trace])
-        fig.update_layout(title=dict(text=f"{label} 1위 · {'가중 ON' if weighted else '가중 OFF'} · {center}", x=0.5, xanchor="center"),
-                          height=440, margin=dict(l=18,r=18,t=58,b=22),
-                          xaxis=dict(visible=False), yaxis=dict(visible=False,scaleanchor="x"))
-        _append_layout_annotations(fig, _node_label_annotations(pos, list(ego.nodes), label_nodes, font_size=10, yshift=8))
-        figs.append((label, weighted, center, fig))
 
-    if not figs:
+        def ego_fig(center, weighted, mode_label):
+            ego=nx.ego_graph(G,center,radius=1)
+            neighbors=sorted(((n,G[center][n].get("weight",1)) for n in ego.neighbors(center)),key=lambda x:x[1],reverse=True)
+            keep={center}|{n for n,_ in neighbors[:12]}
+            ego=G.subgraph(keep).copy()
+            pos=_safe_spring_layout(ego,weight="weight" if weighted else None,seed=42,k=1.0,iterations=110)
+            nodes=list(ego.nodes)
+            ex,ey,et=[],[],[]
+            for u,v,d in ego.edges(data=True):
+                ex += [pos[u][0],pos[v][0],None]; ey += [pos[u][1],pos[v][1],None]
+                h=f"{_speaker_label(ego,u)} ↔ {_speaker_label(ego,v)}<br>연속 발언={int(d.get('weight',1))}회<extra></extra>"
+                et += [h,h,None]
+            edge=go.Scatter(x=ex,y=ey,mode="lines",line=dict(width=1.5 if weighted else 1.1,color="rgba(135,112,170,0.29)"),hoverinfo="text",text=et,showlegend=False)
+            sizes=[]
+            for n in nodes:
+                if n==center:
+                    sizes.append(30)
+                else:
+                    sizes.append(float(min(19,8+math.sqrt(max(float(G[center][n].get("weight",1)),1))*1.75)))
+            node=go.Scatter(
+                x=[pos[n][0] for n in nodes],y=[pos[n][1] for n in nodes],mode="markers",
+                marker=dict(size=sizes,opacity=.88,line=dict(width=1.3,color="#ffffff")),
+                hovertemplate=[f"{_speaker_label(ego,n)}<br>센터={_speaker_label(ego,center)}<br>연속 발언={int(G[center][n].get('weight',0)) if n!=center else '-'}<br>식별자={n}<extra></extra>" for n in nodes],
+                showlegend=False)
+            label_nodes={center}|{n for n,_ in neighbors[:5]}
+            anns=_node_label_annotations(pos,nodes,label_nodes,font_size=11,yshift=9,label_map={n:_speaker_label(ego,n) for n in nodes})
+            fig=go.Figure([edge,node])
+            fig.update_layout(title=dict(text=f"{mode_label} · {'가중 ON' if weighted else '가중 OFF'} · {_speaker_label(G,center)}",x=.5,xanchor="center",y=.97,yanchor="top",font=dict(size=15)),height=430,margin=dict(l=10,r=10,t=60,b=12),xaxis=dict(visible=False),yaxis=dict(visible=False,scaleanchor="x"),annotations=anns)
+            return fig
+
+        off_html=ego_fig(off_center,False,label).to_html(full_html=False,include_plotlyjs=False,div_id=f"ego_off_{i}")
+        on_html=ego_fig(on_center,True,label).to_html(full_html=False,include_plotlyjs=False,div_id=f"ego_on_{i}")
+        panels.append((i,off_html,on_html))
+
+    if not panels:
         skip("중심성별 1위 의원을 찾지 못해 Ego Network 생략")
         return
-    parts = ['<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script><style>body{margin:0;background:#fff;color:#18212b;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}.wrap{width:100%;box-sizing:border-box;padding:12px 18px 22px;margin:0 auto}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(4,440px);gap:10px;align-items:stretch;width:100%}.panel{border:1px solid #dde2e7;border-radius:11px;padding:3px;overflow:hidden;min-width:0;min-height:0;background:#fff}.panel .plotly-graph-div{width:100%!important}.note{font-size:10px;color:#687482;margin-bottom:8px}</style></head><body><div class="wrap"><div class="note">각 중심성의 1위 의원을 중심으로 1차 연결망을 비교합니다.</div><div class="grid">']
-    for i, (label, weighted, center, fig) in enumerate(figs):
-        parts.append('<div class="panel">' + fig.to_html(full_html=False, include_plotlyjs=False, div_id=f"ego_{i}") + '</div>')
-    parts.append('</div></div></body></html>')
-    (OUTPUT_DIR / "21_에고네트워크.html").write_text("".join(parts), encoding="utf-8")
 
+    parts=[]
+    parts.append('''<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script><style>
+body{margin:0;background:#fff;color:#18212b;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif}
+.wrap{width:100%;box-sizing:border-box;padding:16px 20px 24px;margin:0 auto;max-width:1800px}
+.note{font-size:12px;color:#53616d;margin:0 0 11px;line-height:1.5}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,430px);gap:14px;align-items:stretch;width:100%}
+.panel{position:relative;border:1px solid #d9e0e5;border-radius:12px;padding:2px;overflow:hidden;min-width:0;min-height:0;background:#fff}
+.toggle{position:absolute;z-index:20;right:12px;top:10px;display:flex;gap:4px;background:rgba(255,255,255,.96);border:1px solid #cbd4db;border-radius:9px;padding:3px;box-shadow:0 2px 8px rgba(30,45,60,.08)}
+.toggle button{border:0;background:transparent;color:#55636f;padding:5px 9px;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer}.toggle button.active{background:#263f55;color:#fff}
+.plot-off,.plot-on{width:100%;height:100%}.plot-on{display:none}.panel .plotly-graph-div{width:100%!important;height:100%!important}
+@media(max-width:1000px){.grid{grid-template-columns:1fr;grid-template-rows:none}.panel{min-height:430px}}
+</style></head><body><div class="wrap"><div class="note"><b>에고 네트워크</b> · 4개 중심성별 1위 의원을 중심으로 1차 연결망을 비교합니다. 각 패널에서 <b>가중 OFF / 가중 ON</b>을 전환할 수 있습니다.</div><div class="grid">''')
+    for i,off_html,on_html in panels:
+        parts.append(f'<div class="panel"><div class="toggle"><button class="active" onclick="setMode({i},false,this)">가중 OFF</button><button onclick="setMode({i},true,this)">가중 ON</button></div><div class="plot-off">{off_html}</div><div class="plot-on">{on_html}</div></div>')
+    parts.append('''</div></div><script>
+function setMode(i,on,btn){var panel=btn.closest('.panel');panel.querySelector('.plot-off').style.display=on?'none':'block';panel.querySelector('.plot-on').style.display=on?'block':'none';panel.querySelectorAll('.toggle button').forEach(function(b){b.classList.remove('active')});btn.classList.add('active');setTimeout(function(){try{var target=panel.querySelector(on?'.plot-on .plotly-graph-div':'.plot-off .plotly-graph-div');if(target&&window.Plotly)Plotly.Plots.resize(target);}catch(e){}},30);}
+</script></body></html>''')
+    (OUTPUT_DIR/"21_에고네트워크.html").write_text("".join(parts),encoding="utf-8")
 
 # ------------------------------------------------------------
 # Community detection
@@ -1821,79 +1840,38 @@ def timeline_network(df, flow_graph):
     if flow_graph is None or nx is None:
         skip("시간축 네트워크에 사용할 flow graph가 없습니다.")
         return
-
-    # 전체 graph에서 핵심 발언자만 고정하여 모든 연도에서 동일 좌표 사용
-    top = [n for n, _ in sorted(flow_graph.degree, key=lambda x: x[1], reverse=True)[:TOP_NETWORK_NODES]]
-    G = flow_graph.subgraph(top).copy()
-    if len(G.nodes) < 2:
+    top=[n for n,_ in sorted(flow_graph.degree,key=lambda x:x[1],reverse=True)[:TOP_NETWORK_NODES]]
+    G=flow_graph.subgraph(top).copy()
+    if len(G.nodes)<2:
         skip("시간축 네트워크용 주요 노드가 부족합니다.")
         return
-
-    pos = nx.spring_layout(G, seed=42, weight="weight")
-    years = sorted(int(y) for y in df["Year"].dropna().unique())
-
-    # 연도별 실제 edge를 계산
-    frame_data = []
-    all_speakers = set(G.nodes)
+    pos=nx.spring_layout(G,seed=42,weight="weight",k=1.15,iterations=140)
+    years=sorted(int(y) for y in df["Year"].dropna().unique())
+    frame_data=[]; all_speakers=list(G.nodes); label_nodes=set(top[:9])
     for year in years:
-        part = df[(df["Year"] == year) & (df["SpeakerKey"].isin(all_speakers))].copy()
-        part = part.sort_values(["MeetingID", "SeqNum"])
-        edges = Counter()
-        for _, meeting in part.groupby("MeetingID", sort=False):
-            speakers = [s for s in meeting["SpeakerKey"] if s]
-            for a, b in zip(speakers, speakers[1:]):
-                if a == b:
-                    continue
-                u, v = sorted([a, b])
-                edges[(u, v)] += 1
-
-        ex, ey = [], []
-        for (u, v), w in edges.items():
-            if u not in pos or v not in pos:
-                continue
-            x0, y0 = pos[u]; x1, y1 = pos[v]
-            ex += [x0, x1, None]
-            ey += [y0, y1, None]
-
-        active_counts = part["SpeakerKey"].value_counts()
-        label_nodes = set(top[:7])
-        nx_trace = go.Scatter(
-            x=[pos[n][0] for n in all_speakers if n in pos],
-            y=[pos[n][1] for n in all_speakers if n in pos],
-            text=[f"<b>{html_lib.escape(str(n))}</b>" if n in label_nodes else "" for n in all_speakers if n in pos],
-            mode="markers+text",
-            textposition="top center",
-            textfont=dict(size=10, color="#253443", family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),
-            marker=dict(size=[capped_node_size(active_counts.get(n, 0), base=6.5, scale=1.2, cap=14) for n in all_speakers if n in pos], opacity=0.84, line=dict(width=1.1, color="#ffffff")),
-            hovertemplate=[f"{n}<br>{year}년 발언={active_counts.get(n,0)}<extra></extra>" for n in all_speakers if n in pos],
-            showlegend=False,
-        )
-        edge_trace = go.Scatter(x=ex, y=ey, mode="lines", line=dict(width=1, color="rgba(135,112,170,0.24)"), hoverinfo="none", showlegend=False)
-        frame_data.append(go.Frame(data=[edge_trace, nx_trace], name=str(year)))
-
+        part=df[(df["Year"]==year)&(df["SpeakerKey"].isin(all_speakers))].copy().sort_values(["MeetingID","SeqNum"])
+        edges=Counter()
+        for _,meeting in part.groupby("MeetingID",sort=False):
+            sp=[x for x in meeting["SpeakerKey"] if x]
+            for a,b in zip(sp,sp[1:]):
+                if a==b: continue
+                u,v=sorted([a,b]); edges[(u,v)]+=1
+        ex,ey,et=[],[],[]
+        for (u,v),w in edges.items():
+            if u not in pos or v not in pos: continue
+            x0,y0=pos[u]; x1,y1=pos[v]; ex += [x0,x1,None]; ey += [y0,y1,None]
+            h=f"{_speaker_label(G,u)} ↔ {_speaker_label(G,v)}<br>연속 발언 연결={int(w)}회<extra></extra>"; et += [h,h,None]
+        active=part["SpeakerKey"].value_counts(); nodes=[n for n in all_speakers if n in pos]
+        nx_trace=go.Scatter(x=[pos[n][0] for n in nodes],y=[pos[n][1] for n in nodes],mode="markers",textfont=dict(size=11,color="#253443",family="Malgun Gothic, Apple SD Gothic Neo, sans-serif"),marker=dict(size=[capped_node_size(active.get(n,0),base=8,scale=1.45,cap=18) for n in nodes],opacity=.86,line=dict(width=1.2,color="#ffffff")),hovertemplate=[f"{_speaker_label(G,n)}<br>{year}년 발언={active.get(n,0)}<br>식별자={n}<extra></extra>" for n in nodes],showlegend=False)
+        edge_trace=go.Scatter(x=ex,y=ey,mode="lines",line=dict(width=1.35,color="rgba(135,112,170,0.30)"),hoverinfo="text",text=et,showlegend=False)
+        frame_data.append(go.Frame(data=[edge_trace,nx_trace],name=str(year)))
     if not frame_data:
-        skip("연도별 frame을 만들 수 없습니다.")
-        return
-
-    first = frame_data[0]
-    fig = go.Figure(data=first.data, frames=frame_data)
-    fig.update_layout(
-        title=dict(text="시간축 네트워크: 연도별 발언흐름 구조", x=0.5, xanchor="center", y=0.97, yanchor="top"),
-        xaxis=dict(visible=False), yaxis=dict(visible=False, scaleanchor="x"),
-        margin=dict(l=25, r=25, t=88, b=112),
-        updatemenus=[{
-            "type": "buttons", "showactive": True,
-            "buttons": [{"label": "▶ 재생", "method": "animate", "args": [None, {"frame": {"duration": 1500, "redraw": True}, "transition": {"duration": 350}, "fromcurrent": True}]}],
-            "x": 0.99, "xanchor": "right", "y": 1.08,
-        }],
-        sliders=[{
-            "active": 0, "currentvalue": {"prefix": "연도: "},
-            "steps": [{"label": str(y), "method": "animate", "args": [[str(y)], {"mode": "immediate", "frame": {"duration": 500, "redraw": True}, "transition": {"duration": 0}}]} for y in years]
-        }],
-        annotations=[dict(text="동일한 node 좌표를 고정하여 연도별 구조 변화를 비교", x=0, y=-0.05, xref="paper", yref="paper", showarrow=False)],
-    )
-    figure_write(fig, OUTPUT_DIR / "22_시간축_네트워크.html")
-
+        skip("연도별 frame을 만들 수 없습니다."); return
+    first=frame_data[0]; fig=go.Figure(data=first.data,frames=frame_data)
+    anns=[dict(text="동일한 node 좌표를 고정하여 연도별 구조 변화를 비교",x=.5,y=-.085,xref="paper",yref="paper",showarrow=False,xanchor="center",align="center",font=dict(size=11,color="#52606c"))]
+    anns += _node_label_annotations(pos,list(G.nodes),label_nodes,font_size=11,yshift=9,label_map={n:_speaker_label(G,n) for n in G.nodes})
+    fig.update_layout(title=dict(text="시간축 네트워크: 연도별 발언흐름 구조",x=.5,xanchor="center",y=.965,yanchor="top",font=dict(size=20)),xaxis=dict(visible=False),yaxis=dict(visible=False,scaleanchor="x"),margin=dict(l=18,r=18,t=78,b=150),height=900,updatemenus=[dict(type="buttons",showactive=True,buttons=[dict(label="▶ 재생",method="animate",args=[None,{"frame":{"duration":1500,"redraw":True},"transition":{"duration":350},"fromcurrent":True}])],x=.98,xanchor="right",y=1.055)],sliders=[dict(active=0,currentvalue={"prefix":"연도: ","font":{"size":12}},len=.92,x=.04,xanchor="left",y=-.105,steps=[dict(label=str(y),method="animate",args=[[str(y)],{"mode":"immediate","frame":{"duration":500,"redraw":True},"transition":{"duration":0}}]) for y in years])],annotations=anns)
+    figure_write(fig,OUTPUT_DIR/"22_시간축_네트워크.html")
 
 # ------------------------------------------------------------
 # 지식그래프: event-centered
@@ -2362,7 +2340,7 @@ def make_dashboard(summary=None, insights=None):
             "13_발언자_프로파일.html": 680, "14_의원별_담론프로파일.html": 760, "15_의원_담론_시간.html": 1050, "16_발언자_전체발언_시간.html": 700,
             "25_정당중심.html": 720, "26_정당별_담론프로파일.html": 760, "27_정당_담론_시간.html": 1050, "28_정당_전체발언_시간.html": 700,
             "17_담론간_관계네트워크.html": 760, "18_키워드_공출현네트워크.html": 760, "19_발언흐름_네트워크.html": 760,
-            "20_중심성_분석.html": 2450, "21_에고네트워크.html": 1880, "22_시간축_네트워크.html": 980, "23_지식그래프.html": 1250, "24_커뮤니티_탐지.html": 900,
+            "20_중심성_분석.html": 2450, "21_에고네트워크.html": 960, "22_시간축_네트워크.html": 960, "23_지식그래프.html": 1250, "24_커뮤니티_탐지.html": 900,
         }
         h = height_map.get(filename, 760)
         return (
@@ -2444,13 +2422,13 @@ def make_dashboard(summary=None, insights=None):
 :root{{--bg:#f4f6f8;--panel:#fff;--line:#dde2e7;--text:#18212b;--muted:#687482;--accent:#263f55;--soft:#eef2f5;--ok:#2f6b4f;--insight:#f7f9fb}}
 *{{box-sizing:border-box}} body{{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;line-height:1.45}}
 .page{{max-width:1780px;margin:0 auto;padding:26px 26px 60px}}
-.hero{{background:linear-gradient(135deg,#172736,#314b60);color:#fff;border-radius:22px;padding:30px 36px 26px;box-shadow:0 8px 30px rgba(20,35,50,.14)}} .hero h1{{margin:0;font-size:29px;letter-spacing:-.03em}} .hero p{{margin:7px 0 0;color:#dce6ed;font-size:13px}}
-.executive{{margin-top:13px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px 19px;box-shadow:0 3px 14px rgba(30,45,60,.045)}} .executive-label{{font-size:10px;font-weight:800;color:var(--accent);letter-spacing:.08em;text-transform:uppercase}} .executive h2{{font-size:17px;margin:4px 0 8px}} .summary-list{{display:grid;grid-template-columns:1fr 1fr;gap:5px 22px}} .summary-row{{display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:11px;color:#35424e;padding:4px 0;border-bottom:1px solid #eef1f3}} .summary-row b{{color:var(--accent);white-space:nowrap}}
-.featured{{margin-top:14px}} .section{{margin-top:29px}} .section-title{{display:flex;align-items:center;gap:11px;margin-bottom:10px}} .section-title .num{{width:33px;height:33px;border-radius:9px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex:0 0 auto}} .section-title h2{{margin:0;font-size:18px;letter-spacing:-.02em}}
+.hero{{background:linear-gradient(135deg,#172736,#314b60);color:#fff;border-radius:22px;padding:30px 36px 26px;box-shadow:0 8px 30px rgba(20,35,50,.14)}} .hero h1{{margin:0;font-size:29px;letter-spacing:-.03em}} .hero p{{margin:7px 0 0;color:#dce6ed;font-size:13.5px}}
+.executive{{margin-top:13px;background:#fff;border:1px solid var(--line);border-radius:16px;padding:15px 19px;box-shadow:0 3px 14px rgba(30,45,60,.045)}} .executive-label{{font-size:10px;font-weight:800;color:var(--accent);letter-spacing:.08em;text-transform:uppercase}} .executive h2{{font-size:17px;margin:4px 0 8px}} .summary-list{{display:grid;grid-template-columns:1fr 1fr;gap:5px 22px}} .summary-row{{display:grid;grid-template-columns:110px 1fr;gap:8px;font-size:12px;color:#35424e;padding:4px 0;border-bottom:1px solid #eef1f3}} .summary-row b{{color:var(--accent);white-space:nowrap}}
+.featured{{margin-top:14px}} .section{{margin-top:29px}} .section-title{{display:flex;align-items:center;gap:11px;margin-bottom:10px}} .section-title .num{{width:33px;height:33px;border-radius:9px;background:var(--accent);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:11px;flex:0 0 auto}} .section-title h2{{margin:0;font-size:19px;letter-spacing:-.02em}}
 .grid{{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}} .card{{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden;min-width:0;box-shadow:0 2px 10px rgba(30,45,60,.035)}} .card.wide{{grid-column:1/-1}} .hero-chart{{box-shadow:0 6px 22px rgba(30,45,60,.07);border-color:#cdd7df}}
-.card-head{{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:11px 14px 7px;border-bottom:1px solid #edf0f2;min-height:56px}} .card-head h3{{font-size:14px;margin:0;font-weight:800}} .card-head p{{font-size:10px;color:var(--muted);margin:2px 0 0}} .status{{font-size:8px;border:1px solid #c8ded0;color:var(--ok);padding:3px 7px;border-radius:999px;background:#f2f8f4}}
-.insight{{padding:7px 14px 8px;background:var(--insight);border-bottom:1px solid #edf0f2;font-size:11px;color:#3b4752;min-height:33px}} .insight b{{color:var(--accent);margin-right:5px}} iframe{{display:block;width:100%;height:500px;overflow:hidden;border:0;background:#fff}} .card.wide iframe{{height:560px}} .hero-chart iframe{{height:560px}}
-.kpis{{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin:12px 0 4px}} .kpi{{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 13px;min-height:88px}} .kpi-label{{font-size:9px;color:var(--muted);font-weight:700}} .kpi-value{{font-size:20px;font-weight:800;margin:3px 0 2px}} .kpi-note{{font-size:9px;color:var(--muted)}}
+.card-head{{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:11px 14px 7px;border-bottom:1px solid #edf0f2;min-height:56px}} .card-head h3{{font-size:15px;margin:0;font-weight:800}} .card-head p{{font-size:11px;color:var(--muted);margin:2px 0 0}} .status{{font-size:8px;border:1px solid #c8ded0;color:var(--ok);padding:3px 7px;border-radius:999px;background:#f2f8f4}}
+.insight{{padding:9px 14px 10px;background:#eef4f8;border-left:4px solid #4b6b82;border-bottom:1px solid #dce5eb;font-size:12.5px;color:#263844;min-height:38px;line-height:1.5}} .insight b{{color:#1f4660;margin-right:7px;font-size:13.5px}} iframe{{display:block;width:100%;height:500px;overflow:hidden;border:0;background:#fff}} .card.wide iframe{{height:560px}} .hero-chart iframe{{height:560px}}
+.kpis{{display:grid;grid-template-columns:repeat(4,1fr);gap:11px;margin:12px 0 4px}} .kpi{{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 13px;min-height:88px}} .kpi-label{{font-size:10px;color:var(--muted);font-weight:700}} .kpi-value{{font-size:20px;font-weight:800;margin:3px 0 2px}} .kpi-note{{font-size:10px;color:var(--muted)}}
 .data-strip{{margin-top:26px;background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:12px;display:flex;flex-wrap:wrap;gap:7px;align-items:center}} .data-strip .label{{font-size:9px;font-weight:800;color:var(--muted)}} .data-link{{text-decoration:none;color:var(--accent);border:1px solid var(--line);background:var(--soft);border-radius:999px;padding:5px 8px;font-size:9px}} .footer{{margin-top:14px;color:var(--muted);font-size:9px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}}
 @media(max-width:1200px){{.page{{padding:20px 15px 44px}}.grid{{grid-template-columns:1fr}}.card.wide{{grid-column:auto}}.kpis{{grid-template-columns:repeat(2,1fr)}} .summary-list{{grid-template-columns:1fr}}}}
 @media(max-width:700px){{.hero{{padding:22px 18px}}.hero h1{{font-size:21px}}.kpis{{grid-template-columns:1fr 1fr}} .summary-row{{grid-template-columns:1fr}}}}
