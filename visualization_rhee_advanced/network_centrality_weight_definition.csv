@@ -1,0 +1,4 @@
+﻿Metric,Definition
+EdgeWeight,같은 회의에서 두 의원이 연속 발언자로 등장한 횟수(전체 기간 합산)
+WeightedDegree,연결된 의원들과의 연속 발언 연결 횟수 합(Strength)
+WeightedShortestPath,거리 = 1 / EdgeWeight
