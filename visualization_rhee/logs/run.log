@@ -17,6 +17,6 @@
 [SKIP] 현재 데이터에는 annotation 관련 열이 없어 annotation module은 사실상 비활성 상태입니다.
 ========================================================================
 ✅ 완료
-출력 폴더: /Users/songyounghwa/Documents/record_assembly/visualization_rhee_advanced
-대시보드: /Users/songyounghwa/Documents/record_assembly/visualization_rhee_advanced/대시보드.html
+출력 폴더: ./record_assembly/visualization_rhee_advanced
+대시보드: ./record_assembly/visualization_rhee_advanced/대시보드.html
 ========================================================================

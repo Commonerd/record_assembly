@@ -1,0 +1,7 @@
+﻿check,count,status
+meeting_seq_duplicate,48780,WARN
+speaker_multiple_정당,96,WARN
+speaker_multiple_지역,105,WARN
+speaker_multiple_성별,0,OK
+speaker_multiple_당선횟수,1,WARN
+speaker_multiple_당선방법,87,WARN
